@@ -1,4 +1,4 @@
-# app.py — TUDO EM UM ARQUIVO (coleta + API)
+# app.py — TUDO EM UM ARQUIVO (coleta + API) — CORRIGIDO PARA PYTHON
 
 import requests
 from bs4 import BeautifulSoup
@@ -48,10 +48,19 @@ def scrape_indeed_brasil(job="desenvolvedor", location="Brasil", pages=2):
             res = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(res.text, "html.parser")
             for div in soup.select("div.job_seen_beacon"):
-                title = div.select_one("h2 a")?.get("title") or "Não informado"
-                company = div.select_one("span.companyName")?.text or "Não informado"
-                loc = div.select_one("div.companyLocation")?.text or "Brasil"
-                link = "https://br.indeed.com" + (div.select_one("h2 a")?.get("href") or "")
+                # Correção: usar .select_one() e verificar se existe
+                title_elem = div.select_one("h2 a")
+                title = title_elem.get("title") if title_elem else "Não informado"
+                
+                company_elem = div.select_one("span.companyName")
+                company = company_elem.text.strip() if company_elem else "Não informado"
+                
+                loc_elem = div.select_one("div.companyLocation")
+                loc = loc_elem.text.strip() if loc_elem else "Brasil"
+                
+                link_elem = div.select_one("h2 a")
+                link = "https://br.indeed.com" + link_elem.get("href") if link_elem else ""
+                
                 level = "Não informado"
                 if "júnior" in title.lower() or "jr" in title.lower():
                     level = "Júnior"
