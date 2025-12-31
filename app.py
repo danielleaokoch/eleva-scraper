@@ -45,7 +45,7 @@ def scrape_google_jobs(query, days_back=1):
     "site:foxhumancapital.com/vagas",
     "site:www.zrgpartners.com/candidates",
     "site:www.signium.com.br/candidatos",
-    "site:www.odgersberndtson.com/pt-br/oportunidades
+    "site:www.odgersberndtson.com/pt-br/oportunidades"
 ]
     
     for source in sources:
