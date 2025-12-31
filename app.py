@@ -1,4 +1,4 @@
-# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva)
+# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva) — CORRIGIDO PARA GOOGLE
 
 import requests
 from bs4 import BeautifulSoup
@@ -17,55 +17,72 @@ def scrape_google_jobs(query, days_back=1):
     all_jobs = []
     yesterday = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     
-    # Fontes seguras para buscar via Google
+    # Fontes seguras para buscar via Google (incluindo LinkedIn e Gupy)
     sources = [
-    "site:linkedin.com/jobs",      # Vagas do LinkedIn (públicas)
-    "site:gupy.com.br",            # Vagas do Gupy (públicas)
-    "site:vagas.com.br",           # Vagas.com.br
-    "site:trampos.co",             # Trampos.co
-    "site:ciadetalentos.com.br",   # Cia de Talentos
-    "site:glassdoor.com.br",       # Glassdoor
-    "site:br.indeed.com",           # Indeed
-    "site:kornferry.com/careers",
-    "site:spencerstuart.com/candidate-registration",
-    "site:egonzehnder.com/what-we-do/executive-search",
-    "site:heidrick.com/en/candidates",
-    "site:russellreynolds.com/en/candidates",
-    "site:roberthalf.com.br/vagas",
-    "site:michaelpage.com.br/jobs",
-    "site:pageexecutive.com/jobs",
-    "site:hays.com.br/vagas-de-emprego",
-    "site:fesagroup.com/talentos",
-    "site:talenses.com/pt/vagas",
-    "site:exec.com.br/vagas",
-    "site:flowexec.com.br/vagas",
-    "site:www.boyden.com/brazil/opportunities",
-    "site:www.amrop.com.br/en/candidates",
-    "site:www.stantonchase.com/candidates",
-    "site:foxhumancapital.com/vagas",
-    "site:www.zrgpartners.com/candidates",
-    "site:www.signium.com.br/candidatos",
-    "site:www.odgersberndtson.com/pt-br/oportunidades"
-]
+        "site:linkedin.com/jobs",
+        "site:gupy.com.br",
+        "site:vagas.com.br",
+        "site:trampos.co",
+        "site:ciadetalentos.com.br",
+        "site:glassdoor.com.br",
+        "site:br.indeed.com"
+    ]
     
     for source in sources:
         search_query = f'{query} {source} after:{yesterday}'
-        logging.info(f"Buscando no Google: {search_query}")
+        logging.info(f"🔍 Buscando no Google: {search_query}")
         
         try:
-            url = f"https://www.google.com/search?q={urllib.parse.quote(search_query)}&hl=pt-BR"
-            headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+            # Usar User-Agent mais humano
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+            }
+            
+            # Construir URL de busca
+            url = f"https://www.google.com/search?q={urllib.parse.quote(search_query)}&hl=pt-BR&num=10"
+            
             res = requests.get(url, headers=headers, timeout=10)
             soup = BeautifulSoup(res.text, "html.parser")
             
-            for g in soup.select("div.g"):
-                link_elem = g.select_one("a")
+            # Procurar por resultados (Google mudou a estrutura — usar .g ou .yuRUbf)
+            results = soup.select("div.g") or soup.select("div.yuRUbf")
+            
+            for result in results[:10]:  # limite seguro
+                link_elem = result.select_one("a")
                 if link_elem:
                     href = link_elem.get("href")
-                    if href and "url?" not in href:
-                        # Extrair só o título (simulando preview)
-                        title_elem = g.select_one("h3")
+                    if href and "url?" not in href and "google" not in href:
+                        # Extrair título
+                        title_elem = result.select_one("h3")
                         title = title_elem.text if title_elem else "Vaga executiva"
+                        
+                        # Detectar fonte
+                        fonte = "Google"
+                        if "linkedin.com/jobs" in href:
+                            fonte = "LinkedIn"
+                        elif "gupy.com.br" in href:
+                            fonte = "Gupy"
+                        elif "vagas.com.br" in href:
+                            fonte = "Vagas.com.br"
+                        elif "trampos.co" in href:
+                            fonte = "Trampos.co"
+                        elif "ciadetalentos.com.br" in href:
+                            fonte = "Cia de Talentos"
+                        elif "glassdoor.com.br" in href:
+                            fonte = "Glassdoor"
+                        elif "indeed.com" in href:
+                            fonte = "Indeed"
+                        
+                        # Detectar senioridade
+                        senioridade = "Sênior+"
+                        if "diretor" in title.lower() or "head" in title.lower():
+                            senioridade = "Diretor/Head"
+                        elif "gerente" in title.lower():
+                            senioridade = "Gerente"
+                        elif "coordenador" in title.lower():
+                            senioridade = "Coordenador"
+                        
                         all_jobs.append({
                             "cargo": title,
                             "empresa": "Não informado",
@@ -73,65 +90,16 @@ def scrape_google_jobs(query, days_back=1):
                             "modalidade": "Não informado",
                             "data_publicacao": yesterday,
                             "localizacao": "Brasil",
-                            "senioridade": "Sênior+",
+                            "senioridade": senioridade,
                             "requisitos": [],
                             "experiencias": [],
                             "link_candidatura": href,
-                            "fonte": source.replace("site:", "").replace(".com.br", "").replace(".com", "")
+                            "fonte": fonte
                         })
-                        if len(all_jobs) >= 100:  # limite seguro
-                            break
             time.sleep(10)  # respeitar Google
         except Exception as e:
             logging.error(f"Erro Google: {e}")
     return all_jobs
-
-def scrape_indeed_executivo():
-    """Coleta vagas executivas do Indeed Brasil"""
-    jobs = []
-    query = "gerente OR diretor OR head OR líder OR executivo"
-    url = f"https://br.indeed.com/jobs?q={urllib.parse.quote(query)}&l=Brasil"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    
-    try:
-        res = requests.get(url, headers=headers, timeout=10)
-        soup = BeautifulSoup(res.text, "html.parser")
-        for div in soup.select("div.job_seen_beacon")[:30]:
-            title_elem = div.select_one("h2 a")
-            title = title_elem.get("title") if title_elem else "Não informado"
-            
-            company_elem = div.select_one("span.companyName")
-            company = company_elem.text.strip() if company_elem else "Não informado"
-            
-            loc_elem = div.select_one("div.companyLocation")
-            loc = loc_elem.text.strip() if loc_elem else "Brasil"
-            
-            link = "https://br.indeed.com" + (title_elem.get("href") if title_elem else "")
-            
-            # Detectar senioridade
-            senioridade = "Sênior"
-            if "diretor" in title.lower() or "head" in title.lower():
-                senioridade = "Diretor/Head"
-            elif "gerente" in title.lower():
-                senioridade = "Gerente"
-            
-            jobs.append({
-                "cargo": title,
-                "empresa": company,
-                "salario": "Não informado",
-                "modalidade": "Não informado",
-                "data_publicacao": datetime.now().strftime("%Y-%m-%d"),
-                "localizacao": loc,
-                "senioridade": senioridade,
-                "requisitos": [],
-                "experiencias": [],
-                "link_candidatura": link,
-                "fonte": "Indeed"
-            })
-            time.sleep(3)
-    except Exception as e:
-        logging.error(f"Erro Indeed executivo: {e}")
-    return jobs
 
 def run_scrapper():
     """Executa a coleta diária de vagas executivas"""
@@ -143,12 +111,7 @@ def run_scrapper():
     logging.info(f"✅ Google: {len(google_jobs)} vagas")
     all_jobs.extend(google_jobs)
     
-    # Indeed Executivo
-    indeed_jobs = scrape_indeed_executivo()
-    logging.info(f"✅ Indeed: {len(indeed_jobs)} vagas")
-    all_jobs.extend(indeed_jobs)
-    
-    # Remover duplicatas (por link)
+    # Remover duplicatas
     seen = set()
     unique_jobs = []
     for job in all_jobs:
