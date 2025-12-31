@@ -1,37 +1,22 @@
-# api.py
-from flask import Flask, jsonify, request
-import json
+# app.py
+from api import app
+import subprocess
+import sys
 
-app = Flask(__name__)
-
-# Carrega vagas do dia
-def load_jobs():
+def run_scrapper():
+    """Executa o scrapper.py ao iniciar o serviço"""
     try:
-        with open("vagas_do_dia.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return []
-
-@app.route("/api/jobs", methods=["GET"])
-def get_jobs():
-    jobs = load_jobs()
-    
-    # Filtros via URL: ?q=desenvolvedor&location=São Paulo&level=Pleno
-    q = request.args.get("q", "").lower()
-    location = request.args.get("location", "").lower()
-    level = request.args.get("level", "").lower()
-
-    filtered = []
-    for job in jobs:
-        if q and q not in job["title"].lower():
-            continue
-        if location and location not in job["location"].lower():
-            continue
-        if level and level not in job["level"].lower():
-            continue
-        filtered.append(job)
-    
-    return jsonify(filtered[:100])  # máximo 100 por busca
+        result = subprocess.run([sys.executable, "scrapper.py"], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("✅ Scrapper executado com sucesso!")
+        else:
+            print(f"❌ Erro ao executar scrapper.py: {result.stderr}")
+    except Exception as e:
+        print(f"❌ Erro ao tentar executar scrapper.py: {e}")
 
 if __name__ == "__main__":
+    # Executa o scrapper antes de iniciar a API
+    run_scrapper()
+    
+    # Inicia a API
     app.run(host="0.0.0.0", port=8000)
