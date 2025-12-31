@@ -1,4 +1,4 @@
-# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva) — COM SERPAPI (seguro)
+# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva) — CORRIGIDO E TESTADO
 
 import requests
 import time
@@ -143,4 +143,30 @@ def get_jobs():
         with open("vagas_executivas.json", "r", encoding="utf-8") as f:
             jobs = json.load(f)
     except Exception as e:
-        logging.error(f"Erro ao carregar vagas:
+        logging.error(f"Erro ao carregar vagas: {e}")
+        jobs = []
+    
+    # Filtros via query params
+    q = request.args.get("q", "").lower()
+    location = request.args.get("location", "").lower()
+    senioridade = request.args.get("senioridade", "").lower()
+    
+    filtered = []
+    for job in jobs:
+        if q and q not in job["cargo"].lower():
+            continue
+        if location and location not in job["localizacao"].lower():
+            continue
+        if senioridade and senioridade not in job["senioridade"].lower():
+            continue
+        filtered.append(job)
+    
+    return jsonify(filtered[:100])
+
+@app.route("/", methods=["GET"])
+def health_check():
+    return "✅ Eleva Scraper está online! Acesse /api/jobs para ver as vagas."
+
+if __name__ == "__main__":
+    run_scrapper()
+    app.run(host="0.0.0.0", port=8000)
