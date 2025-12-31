@@ -19,12 +19,34 @@ def scrape_google_jobs(query, days_back=1):
     
     # Fontes seguras para buscar via Google
     sources = [
-        "site:br.indeed.com",
-        "site:glassdoor.com.br",
-        "site:vagas.com.br",
-        "site:trampos.co",
-        "site:ciadetalentos.com.br"
-    ]
+    "site:linkedin.com/jobs",      # Vagas do LinkedIn (públicas)
+    "site:gupy.com.br",            # Vagas do Gupy (públicas)
+    "site:vagas.com.br",           # Vagas.com.br
+    "site:trampos.co",             # Trampos.co
+    "site:ciadetalentos.com.br",   # Cia de Talentos
+    "site:glassdoor.com.br",       # Glassdoor
+    "site:br.indeed.com",           # Indeed
+    "site:kornferry.com/careers",
+    "site:spencerstuart.com/candidate-registration",
+    "site:egonzehnder.com/what-we-do/executive-search",
+    "site:heidrick.com/en/candidates",
+    "site:russellreynolds.com/en/candidates",
+    "site:roberthalf.com.br/vagas",
+    "site:michaelpage.com.br/jobs",
+    "site:pageexecutive.com/jobs",
+    "site:hays.com.br/vagas-de-emprego",
+    "site:fesagroup.com/talentos",
+    "site:talenses.com/pt/vagas",
+    "site:exec.com.br/vagas",
+    "site:flowexec.com.br/vagas",
+    "site:www.boyden.com/brazil/opportunities",
+    "site:www.amrop.com.br/en/candidates",
+    "site:www.stantonchase.com/candidates",
+    "site:foxhumancapital.com/vagas",
+    "site:www.zrgpartners.com/candidates",
+    "site:www.signium.com.br/candidatos",
+    "site:www.odgersberndtson.com/pt-br/oportunidades
+]
     
     for source in sources:
         search_query = f'{query} {source} after:{yesterday}'
