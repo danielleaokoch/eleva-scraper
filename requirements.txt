@@ -2,6 +2,3 @@ flask
 requests
 beautifulsoup4
 lxml
-scrapper.py
-api.py
-requirements.txt
