@@ -1,4 +1,4 @@
-# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva) — CORRIGIDO E TESTADO
+# app.py — Coletor Ético de Vagas Executivas (CTO da Eleva) — COM SUPABASE
 
 import requests
 import time
@@ -8,15 +8,22 @@ import os
 from flask import Flask, jsonify, request
 from datetime import datetime, timedelta
 import urllib.parse
+from supabase import create_client, Client
 
 # Configurar logs
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# 🔑 Carregar API Key do SerpAPI das variáveis de ambiente
+# 🔑 Carregar variáveis de ambiente
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
-if not SERPAPI_KEY:
-    logging.error("❌ SERPAPI_KEY não configurada! Adicione nas variáveis de ambiente do Railway.")
-    SERPAPI_KEY = "sua_chave_aqui"  # fallback (mas não funcionará)
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+if not SERPAPI_KEY or not SUPABASE_URL or not SUPABASE_KEY:
+    logging.error("❌ Variáveis de ambiente não configuradas!")
+    exit(1)
+
+# Inicializar cliente Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 def scrape_google_jobs(query, days_back=1):
     """Busca vagas no Google usando SerpAPI"""
@@ -97,12 +104,13 @@ def scrape_google_jobs(query, days_back=1):
                         "requisitos": [],
                         "experiencias": [],
                         "link_candidatura": link,
-                        "fonte": fonte
+                        "fonte": fonte,
+                        "created_at": datetime.now().isoformat()
                     })
             else:
                 logging.warning(f"⚠️ Nenhum resultado em 'organic_results' para: {search_query}")
             
-            time.sleep(2)  # respeitar rate limit do SerpAPI (0.5 requisições/segundo)
+            time.sleep(2)  # respeitar rate limit do SerpAPI
             
         except Exception as e:
             logging.error(f"❌ Erro SerpAPI: {e}")
@@ -110,29 +118,22 @@ def scrape_google_jobs(query, days_back=1):
     return all_jobs
 
 def run_scrapper():
-    """Executa a coleta diária de vagas executivas"""
+    """Executa a coleta diária e salva no Supabase"""
     logging.info("🚀 Iniciando coleta de vagas executivas...")
-    all_jobs = []
     
-    # Google Jobs (vagas publicadas ontem)
-    google_jobs = scrape_google_jobs("gestão OR negócios OR executivo")
-    logging.info(f"✅ Google: {len(google_jobs)} vagas coletadas")
-    all_jobs.extend(google_jobs)
-    
-    # Remover duplicatas (por link)
-    seen = set()
-    unique_jobs = []
-    for job in all_jobs:
-        link = job["link_candidatura"]
-        if link not in seen:
-            seen.add(link)
-            unique_jobs.append(job)
-    
-    # Salvar em arquivo
-    with open("vagas_executivas.json", "w", encoding="utf-8") as f:
-        json.dump(unique_jobs, f, ensure_ascii=False, indent=2)
-    
-    logging.info(f"✅ Total: {len(unique_jobs)} vagas únicas salvas em vagas_executivas.json!")
+    # Coletar novas vagas
+    new_jobs = scrape_google_jobs("gestão OR negócios OR executivo")
+    logging.info(f"📥 Coletadas {len(new_jobs)} vagas novas")
+
+    # Salvar no Supabase
+    for job in new_jobs:
+        try:
+            response = supabase.table("vagas").insert(job).execute()
+            logging.info(f"✅ Vaga salva: {job['cargo']}")
+        except Exception as e:
+            logging.error(f"❌ Erro ao salvar vaga: {e}")
+
+    logging.info(f"✅ Total: {len(new_jobs)} vagas salvas no Supabase!")
 
 # Flask API
 app = Flask(__name__)
@@ -140,28 +141,28 @@ app = Flask(__name__)
 @app.route("/api/jobs", methods=["GET"])
 def get_jobs():
     try:
-        with open("vagas_executivas.json", "r", encoding="utf-8") as f:
-            jobs = json.load(f)
+        # Consultar Supabase
+        q = request.args.get("q", "").lower()
+        location = request.args.get("location", "").lower()
+        senioridade = request.args.get("senioridade", "").lower()
+        
+        query = supabase.table("vagas").select("*")
+        
+        if q:
+            query = query.ilike("cargo", f"%{q}%")
+        if location:
+            query = query.ilike("localizacao", f"%{location}%")
+        if senioridade:
+            query = query.ilike("senioridade", f"%{senioridade}%")
+        
+        response = query.execute()
+        jobs = response.data
+        
     except Exception as e:
-        logging.error(f"Erro ao carregar vagas: {e}")
+        logging.error(f"Erro ao buscar vagas: {e}")
         jobs = []
     
-    # Filtros via query params
-    q = request.args.get("q", "").lower()
-    location = request.args.get("location", "").lower()
-    senioridade = request.args.get("senioridade", "").lower()
-    
-    filtered = []
-    for job in jobs:
-        if q and q not in job["cargo"].lower():
-            continue
-        if location and location not in job["localizacao"].lower():
-            continue
-        if senioridade and senioridade not in job["senioridade"].lower():
-            continue
-        filtered.append(job)
-    
-    return jsonify(filtered[:100])
+    return jsonify(jobs[:100])
 
 @app.route("/", methods=["GET"])
 def health_check():
