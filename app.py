@@ -1,4 +1,4 @@
-# app.py — Coletor de Vagas RICO (CTO da Eleva) — SEM SPA
+# app.py — Coletor de Vagas RICO (CTO da Eleva) — VERSÃO FINAL
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -38,11 +38,11 @@ supabase_read = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 supabase_write = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 def extract_keywords(text):
-    """Extração RICA de palavras-chave SEM NLP (dados de alta qualidade)"""
+    """Extração RICA de palavras-chave (sem NLP)"""
     if not text or not isinstance(text, str):
         return []
     
-    # Banco de palavras-chave especializadas em vagas brasileiras
+    # Banco de palavras-chave especializadas
     palavras_chave = [
         # Tecnologia
         "python", "javascript", "react", "vue", "angular", "node.js", "typescript", "java", "c#", "c++", 
@@ -71,7 +71,6 @@ def extract_keywords(text):
         "compliance", "governança", "risco", "auditoria"
     ]
     
-    # Buscar correspondências no texto
     encontradas = []
     texto_lower = text.lower()
     
@@ -79,11 +78,10 @@ def extract_keywords(text):
         if palavra in texto_lower:
             encontradas.append(palavra)
     
-    # Remover duplicatas e limitar a 15 palavras-chave
     return list(dict.fromkeys(encontradas))[:15]
 
 def scrape_job_details(url, fonte):
-    """Scraping PROFUNDO para dados RICOS (descrição completa, requisitos, benefícios)"""
+    """Scraping PROFUNDO para dados RICOS"""
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -92,10 +90,8 @@ def scrape_job_details(url, fonte):
             "Connection": "keep-alive"
         }
         
-        # Tempo de espera respeitoso
         time.sleep(2)
         
-        # Tentar máximo 3 vezes
         for tentativa in range(3):
             try:
                 res = requests.get(url, headers=headers, timeout=15)
@@ -146,11 +142,9 @@ def scrape_job_details(url, fonte):
 def scrape_linkedin_job(soup, url):
     """Estratégia RICA para LinkedIn Jobs"""
     try:
-        # Descrição completa
         descricao_div = soup.select_one("div.description__text")
         descricao = descricao_div.get_text(strip=True) if descricao_div else "Descrição não disponível no LinkedIn"
         
-        # Requisitos (seções específicas)
         requisitos = []
         sections = soup.select("section.core-section")
         for section in sections:
@@ -160,28 +154,24 @@ def scrape_linkedin_job(soup, url):
                 break
         
         if not requisitos:
-            # Buscar em outros elementos
             requisitos_elements = soup.select("li.application-requirements__item")
             requisitos = [elem.get_text(strip=True) for elem in requisitos_elements]
         
-        # Benefícios
         beneficios = []
         benefits_section = soup.select_one("section.benefits-section")
         if benefits_section:
             beneficios = [li.get_text(strip=True) for li in benefits_section.select("li")]
         
-        # Salário
         salario_elem = soup.select_one("span.salary")
         salario = salario_elem.get_text(strip=True) if salario_elem else "Não informado"
         
-        # Modalidade
         modalidade = "Não informado"
         job_details = soup.select_one("ul.job-details-jobs")
         if job_details and "modalidade" in job_details.text.lower():
             modalidade = "Híbrido" if "híbrido" in job_details.text.lower() else "Presencial"
         
         return {
-            "descricao_completa": descricao[:2000] + "..." if len(descricao) > 2000 else descricao,  # Limitar tamanho
+            "descricao_completa": descricao[:2000] + "..." if len(descricao) > 2000 else descricao,
             "requisitos": requisitos[:10],
             "beneficios": beneficios[:10],
             "habilidades_extraidas": extract_keywords(descricao),
@@ -200,9 +190,8 @@ def scrape_linkedin_job(soup, url):
         }
 
 def scrape_gupy_job(soup, url):
-    """Estratégia para Gupy (dados RICOS)"""
+    """Estratégia para Gupy"""
     try:
-        # Descrição completa
         descricao = ""
         description_sections = soup.select("div.description, div.job-description")
         for section in description_sections:
@@ -212,11 +201,9 @@ def scrape_gupy_job(soup, url):
             main_content = soup.select_one("main")
             descricao = main_content.get_text(strip=True) if main_content else "Descrição não disponível"
         
-        # Requisitos e benefícios (estrutura comum no Gupy)
         requisitos = []
         beneficios = []
         
-        # Buscar seções específicas
         sections = soup.select("section")
         for section in sections:
             title = section.select_one("h2, h3")
@@ -227,7 +214,6 @@ def scrape_gupy_job(soup, url):
                 elif "benefícios" in title_text or "benefits" in title_text:
                     beneficios = [li.get_text(strip=True) for li in section.select("li")]
         
-        # Salário (se disponível)
         salario = "Não informado"
         salario_elems = soup.select("span.salary, div.salary")
         for elem in salario_elems:
@@ -235,7 +221,6 @@ def scrape_gupy_job(soup, url):
                 salario = elem.text.strip()
                 break
         
-        # Modalidade
         modalidade = "Não informado"
         if "presencial" in descricao.lower():
             modalidade = "Presencial"
@@ -264,35 +249,29 @@ def scrape_gupy_job(soup, url):
         }
 
 def scrape_talenses_job(soup, url):
-    """Estratégia para Talenses (site solicitado)"""
+    """Estratégia para Talenses"""
     try:
-        # Descrição completa
         descricao = ""
         description_div = soup.select_one("div.job-description, div.vacancy-description")
         if description_div:
             descricao = description_div.get_text(strip=True)
         else:
-            # Fallback para conteúdo principal
             main_content = soup.select_one("main article")
             descricao = main_content.get_text(strip=True) if main_content else "Descrição não encontrada"
         
-        # Requisitos específicos do Talenses
         requisitos = []
         requirements_section = soup.select_one("section.requisitos, div.requirements")
         if requirements_section:
-            requisitos = [li.get_text(strip=True) for li in requirements_section.select("li, p")]
+            requisitos = [li.get_text(strip=True) for li in requirements_section.select("li")]
         
-        # Benefícios
         beneficios = []
         benefits_section = soup.select_one("section.beneficios, div.benefits")
         if benefits_section:
-            beneficios = [li.get_text(strip=True) for li in benefits_section.select("li, p")]
+            beneficios = [li.get_text(strip=True) for li in benefits_section.select("li")]
         
-        # Salário e modalidade
         salario = "Não informado"
         modalidade = "Não informado"
         
-        # Buscar em meta tags ou elementos específicos
         meta_tags = soup.select("meta[name='description'], meta[property='og:description']")
         for tag in meta_tags:
             content = tag.get("content", "").lower()
@@ -324,10 +303,111 @@ def scrape_talenses_job(soup, url):
             "modalidade": "Não informado"
         }
 
-def scrape_generic_job(soup, url):
-    """Fallback RICO para sites genéricos"""
+def scrape_vagas_job(soup, url):
+    """Estratégia para Vagas.com.br"""
     try:
-        # Buscar a descrição mais completa possível
+        descricao = ""
+        description_div = soup.select_one("div.description, div.job-description")
+        if description_div:
+            descricao = description_div.get_text(strip=True)
+        else:
+            main_content = soup.select_one("main article")
+            descricao = main_content.get_text(strip=True) if main_content else "Descrição não encontrada"
+        
+        requisitos = []
+        requirements_section = soup.select_one("div.requisitos, div.requirements")
+        if requirements_section:
+            requisitos = [li.get_text(strip=True) for li in requirements_section.select("li")]
+        
+        beneficios = []
+        benefits_section = soup.select_one("div.beneficios, div.benefits")
+        if benefits_section:
+            beneficios = [li.get_text(strip=True) for li in benefits_section.select("li")]
+        
+        salario = "Não informado"
+        modalidade = "Não informado"
+        
+        # Detecção de modalidade
+        if "remoto" in descricao.lower():
+            modalidade = "Remoto"
+        elif "presencial" in descricao.lower():
+            modalidade = "Presencial"
+        elif "híbrido" in descricao.lower():
+            modalidade = "Híbrido"
+        
+        return {
+            "descricao_completa": descricao[:2000] + "..." if len(descricao) > 2000 else descricao,
+            "requisitos": requisitos[:10],
+            "beneficios": beneficios[:10],
+            "habilidades_extraidas": extract_keywords(descricao),
+            "salario": salario,
+            "modalidade": modalidade
+        }
+    except Exception as e:
+        logging.error(f"Erro no scraping do Vagas.com.br: {e}")
+        return {
+            "descricao_completa": "Erro ao coletar detalhes do Vagas.com.br",
+            "requisitos": ["Erro"],
+            "beneficios": ["Erro"],
+            "habilidades_extraidas": ["vagas_erro"],
+            "salario": "Não informado",
+            "modalidade": "Não informado"
+        }
+
+def scrape_glassdoor_job(soup, url):
+    """Estratégia para Glassdoor"""
+    try:
+        descricao = ""
+        description_div = soup.select_one("div.jobDescriptionContent, div.description")
+        if description_div:
+            descricao = description_div.get_text(strip=True)
+        else:
+            main_content = soup.select_one("main article")
+            descricao = main_content.get_text(strip=True) if main_content else "Descrição não encontrada"
+        
+        requisitos = []
+        requirements_section = soup.select_one("div.requisitos, div.requirements")
+        if requirements_section:
+            requisitos = [li.get_text(strip=True) for li in requirements_section.select("li")]
+        
+        beneficios = []
+        benefits_section = soup.select_one("div.benefits, div.benefitsSection")
+        if benefits_section:
+            beneficios = [li.get_text(strip=True) for li in benefits_section.select("li")]
+        
+        salario = "Não informado"
+        modalidade = "Não informado"
+        
+        # Detecção de modalidade
+        if "remote" in descricao.lower():
+            modalidade = "Remoto"
+        elif "on-site" in descricao.lower():
+            modalidade = "Presencial"
+        elif "hybrid" in descricao.lower():
+            modalidade = "Híbrido"
+        
+        return {
+            "descricao_completa": descricao[:2000] + "..." if len(descricao) > 2000 else descricao,
+            "requisitos": requisitos[:10],
+            "beneficios": beneficios[:10],
+            "habilidades_extraidas": extract_keywords(descricao),
+            "salario": salario,
+            "modalidade": modalidade
+        }
+    except Exception as e:
+        logging.error(f"Erro no scraping do Glassdoor: {e}")
+        return {
+            "descricao_completa": "Erro ao coletar detalhes do Glassdoor",
+            "requisitos": ["Erro"],
+            "beneficios": ["Erro"],
+            "habilidades_extraidas": ["glassdoor_erro"],
+            "salario": "Não informado",
+            "modalidade": "Não informado"
+        }
+
+def scrape_generic_job(soup, url):
+    """Fallback para sites genéricos"""
+    try:
         descricao = ""
         candidates = [
             "div.description", "div.job-description", "div.content", "article",
@@ -343,16 +423,13 @@ def scrape_generic_job(soup, url):
                     break
         
         if not descricao:
-            # Fallback para todo o conteúdo principal
             main = soup.select_one("main, #main, .main")
             if main:
                 descricao = main.get_text(strip=True)
         
-        # Requisitos e benefícios (buscar por palavras-chave)
         requisitos = []
         beneficios = []
         
-        # Dividir a descrição em seções
         sections = re.split(r'\n\s*\n', descricao)
         for section in sections:
             lower_section = section.lower()
@@ -361,7 +438,6 @@ def scrape_generic_job(soup, url):
             elif "benefício" in lower_section or "beneficio" in lower_section or "benefit" in lower_section:
                 beneficios = [line.strip() for line in section.split("\n") if line.strip() and len(line.strip()) > 10][:5]
         
-        # Salário e modalidade
         salario = "Não informado"
         modalidade = "Não informado"
         
@@ -393,8 +469,8 @@ def scrape_generic_job(soup, url):
             "modalidade": "Não informado"
         }
 
-def scrape_google_jobs(query, days_back=1, max_results=200):
-    """Busca RICA no Google usando SerpAPI (máximo de dados)"""
+def scrape_google_jobs(query, days_back=1, max_results=100):
+    """Busca RICA no Google usando SerpAPI"""
     all_jobs = []
     yesterday = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
     
@@ -420,14 +496,13 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
             data = res.json()
             
             if "organic_results" in data:
-                for result in data["organic_results"][:50]:  # Máximo de resultados por fonte
+                for result in data["organic_results"][:25]:
                     link = result.get("link", "")
                     title = result.get("title", "Vaga executiva")
                     
                     if not link or "google.com" in link or "url?" in link or len(link) < 10:
                         continue
                     
-                    # Detectar fonte com precisão
                     fonte = "Google"
                     if "linkedin.com/jobs" in link:
                         fonte = "LinkedIn"
@@ -446,10 +521,8 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
                     elif "ciadetalentos.com.br" in link:
                         fonte = "Cia de Talentos"
                     
-                    # Fazer scraping PROFUNDO da página da vaga
                     details = scrape_job_details(link, fonte)
                     
-                    # Detectar senioridade com precisão
                     senioridade = "Sênior+"
                     title_lower = title.lower()
                     descricao_lower = details["descricao_completa"].lower()
@@ -467,13 +540,11 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
                     elif any(kw in title_lower for kw in ["júnior", "junior", "jr.", "jr", "estágio", "estagiário"]):
                         senioridade = "Júnior/Estágio"
                     else:
-                        # Verificar na descrição
                         if "5+ anos" in descricao_lower or "mínimo de 5 anos" in descricao_lower:
                             senioridade = "Sênior"
                         elif "3+ anos" in descricao_lower or "mínimo de 3 anos" in descricao_lower:
                             senioridade = "Pleno"
                     
-                    # Detecção de localização
                     localizacao = "Brasil"
                     if "são paulo" in title_lower or "são paulo" in descricao_lower:
                         localizacao = "São Paulo - SP"
@@ -481,11 +552,9 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
                         localizacao = "Rio de Janeiro - RJ"
                     elif "brasília" in title_lower or "brasília" in descricao_lower:
                         localizacao = "Brasília - DF"
-                    # (Adicionar mais detecções conforme necessário)
                     
-                    # Montar registro RICO
                     job_record = {
-                        "cargo": title.strip()[:100],  # Limitar tamanho
+                        "cargo": title.strip()[:100],
                         "empresa": "Não informado",
                         "salario": details["salario"][:50],
                         "modalidade": details["modalidade"][:30],
@@ -497,7 +566,7 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
                         "descricao_completa": details["descricao_completa"],
                         "beneficios": json.dumps(details["beneficios"], ensure_ascii=False),
                         "habilidades_extraidas": json.dumps(details["habilidades_extraidas"], ensure_ascii=False),
-                        "link_candidatura": link[:255],  # Limitar tamanho para banco
+                        "link_candidatura": link[:255],
                         "fonte": fonte,
                         "created_at": datetime.now().isoformat()
                     }
@@ -505,14 +574,12 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
                     all_jobs.append(job_record)
                     logging.info(f"✅ Coletada vaga RICA: {title[:50]}... ({fonte})")
                     
-                    # Respeitar o site
                     time.sleep(2)
                     
                     if len(all_jobs) >= max_results:
-                        logging.info(f"🎯 Limite de {max_results} vagas atingido")
                         return all_jobs
             
-            time.sleep(3)  # Respeitar o SerpAPI
+            time.sleep(3)
             
         except Exception as e:
             logging.error(f"❌ Erro na busca do Google/SerpAPI para {source}: {e}")
@@ -521,7 +588,7 @@ def scrape_google_jobs(query, days_back=1, max_results=200):
     return all_jobs
 
 def scrape_talenses_direct():
-    """Coleta DIRETA e RICA do site Talenses (como solicitado)"""
+    """Coleta DIRETA do site Talenses"""
     logging.info("🔍 Coletando vagas DIRETAMENTE do site Talenses")
     
     headers = {
@@ -531,7 +598,6 @@ def scrape_talenses_direct():
     }
     
     try:
-        # Acessar a página principal de vagas
         url = "https://talenses.com/vagas"
         res = requests.get(url, headers=headers, timeout=15)
         
@@ -546,7 +612,6 @@ def scrape_talenses_direct():
         
         soup = BeautifulSoup(res.text, "html.parser")
         
-        # Estratégia de seleção para o site atual do Talenses
         jobs = []
         job_elements = soup.select(
             "div.vacancy-card, "
@@ -559,9 +624,8 @@ def scrape_talenses_direct():
         
         logging.info(f"🔍 Encontrados {len(job_elements)} elementos de vagas no Talenses")
         
-        for elem in job_elements[:50]:  # Limite seguro
+        for elem in job_elements[:30]:
             try:
-                # Extrair título e link
                 title_elem = elem.select_one("h2, h3, h4, a.title, .job-title")
                 link_elem = elem.select_one("a[href*='/vaga/'], a[href*='/jobs/']")
                 
@@ -572,10 +636,8 @@ def scrape_talenses_direct():
                 link_path = link_elem.get("href", "").strip()
                 link = urllib.parse.urljoin("https://talenses.com", link_path)
                 
-                # Coletar detalhes da vaga individual
                 details = scrape_job_details(link, "Talenses")
                 
-                # Montar registro completo
                 job_record = {
                     "cargo": title[:100],
                     "empresa": "Talenses",
@@ -596,7 +658,7 @@ def scrape_talenses_direct():
                 
                 jobs.append(job_record)
                 logging.info(f"✅ Talenses: {title[:50]}...")
-                time.sleep(2)  # Respeitar o site
+                time.sleep(2)
             
             except Exception as e:
                 logging.error(f"❌ Erro ao processar vaga do Talenses: {e}")
@@ -612,32 +674,22 @@ def scrape_talenses_direct():
 def scrape_all_sources():
     """Função mestre para coletar dados RICOS de TODAS as fontes"""
     logging.info("🚀 INICIANDO COLETA RICA DE VAGAS EXECUTIVAS (MÁXIMA QUALIDADE)")
-    all_jobs = []
-    
-    # 1. Google Jobs + SerpAPI (fontes múltiplas)
+    all_jobs = []    
     google_jobs = scrape_google_jobs(
         "diretor OR gerente OR head OR líder OR executivo OR supervisor OR coordenador OR senior OR sênior OR c-level OR chief",
         days_back=1,
         max_results=80
     )
     logging.info(f"✅ Google/SerpAPI: {len(google_jobs)} vagas RICAS")
-    all_jobs.extend(google_jobs)
-    
-    # 2. Coleta DIRETA do Talenses (como solicitado)
+    all_jobs.extend(google_jobs)    
     talenses_jobs = scrape_talenses_direct()
-    all_jobs.extend(talenses_jobs)
-    
-    # 3. Fontes adicionais (exemplo: Vagas.com.br direto)
-    # (Pode adicionar mais fontes específicas aqui)
-    
+    all_jobs.extend(talenses_jobs)    
     logging.info(f"📊 TOTAL de vagas RICAS coletadas: {len(all_jobs)}")
     return all_jobs
 
 def run_scrapper():
     """Executa a coleta RICA e salva no Supabase"""
-    all_jobs = scrape_all_sources()
-    
-    # Salvar no Supabase (usando service_role para escrita)
+    all_jobs = scrape_all_sources()    
     saved_count = 0
     errors_count = 0
     
@@ -692,7 +744,6 @@ def get_job_details(job_id):
         if not job:
             return jsonify({"error": "Vaga não encontrada"}), 404
         
-        # Converter campos JSON para objetos
         if job.get("requisitos"):
             job["requisitos"] = json.loads(job["requisitos"])
         if job.get("beneficios"):
@@ -717,5 +768,5 @@ def health_check():
 
 if __name__ == "__main__":
     logging.info("🔥 INICIANDO SERVIDOR - AGUARDANDO REQUISIÇÕES")
-    run_scrapper()  # Executar coleta imediatamente ao iniciar
+    run_scrapper()
     app.run(host="0.0.0.0", port=8000)
