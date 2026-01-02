@@ -4,8 +4,11 @@ beautifulsoup4
 lxml
 supabase
 python-dotenv
+spacy
 sentence-transformers
 torch
 transformers
 numpy
+scikit-learn
+geopy
 psycopg2-binary
