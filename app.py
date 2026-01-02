@@ -521,7 +521,7 @@ def scrape_google_jobs(query_base: str, days_back: int = 1) -> list:
             res = requests.get(url, timeout=20)
             data = res.json()
             
-            if "organic_results" not in 
+            if "organic_results" not in data:
                 logger.warning(f"⚠️ Nenhum resultado para: {search_query}")
                 continue
             
