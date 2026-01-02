@@ -1,7 +1,5 @@
-# app.py — Coletor de Vagas para Matching Perfeito (Padrão Unicórnio)
-# Última atualização: 02/01/2026
-# Este código coleta, processa e prepara dados para matching 10/10 conforme especificação Lovable
-
+# app.py — Coletor para Lovable (Executar HOJE)
+# Foco: Coletar dados no formato exato que o Lovable precisa para matching perfeito
 import requests
 from bs4 import BeautifulSoup
 import time
@@ -9,386 +7,256 @@ import json
 import logging
 import os
 import re
-import random
 from datetime import datetime, timedelta
 import urllib.parse
 from supabase import create_client
-from typing import Dict, List, Optional, Any
-import numpy as np
 
 # Configurar logs
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger("ElevaScraper")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 🔑 Carregar variáveis de ambiente
 SERPAPI_KEY = os.getenv("SERPAPI_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
 
 # Verificar variáveis obrigatórias
-required_vars = {
-    "SERPAPI_KEY": SERPAPI_KEY,
-    "SUPABASE_URL": SUPABASE_URL,
-    "SUPABASE_ANON_KEY": SUPABASE_ANON_KEY,
-    "SUPABASE_SERVICE_ROLE_KEY": SUPABASE_SERVICE_ROLE_KEY
-}
-
-missing_vars = [var for var, value in required_vars.items() if not value]
-if missing_vars:
-    logger.error(f"❌ Variáveis de ambiente não configuradas: {', '.join(missing_vars)}")
+if not all([SERPAPI_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY]):
+    logging.error("❌ Variáveis de ambiente não configuradas!")
     exit(1)
 
-# Criar clientes Supabase
-supabase_read = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-supabase_write = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+# Conexão com Supabase
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# ⚙️ Configurações do coletor (AJUSTÁVEL PELO CTO)
-MAX_VAGAS_POR_FONTE = 8  # ⭐⭐⭐ MÁXIMO DE VAGAS POR FONTE/SITE
-MAX_VAGAS_TOTAIS = 120   # ⭐⭐⭐ MÁXIMO TOTAL DE VAGAS POR EXECUÇÃO
-DELAY_ENTRE_REQUISICOES = 4  # segundos (respeitar sites)
-MIN_QUALIDADE_SCORE = 0.4  # Descartar vagas abaixo deste score
+# ⚙️ Configurações (AJUSTÁVEL)
+MAX_VAGAS_TOTAIS = 50  # Limite seguro para MVP
+DELAY_ENTRE_REQUISICOES = 3  # segundos
 
-# 🌐 Fontes de vagas com filtros geográficos embutidos
-SOURCES_BRASIL = [
-    ("site:linkedin.com/jobs", "brasil OR brazil OR são paulo OR rio de janeiro OR brasília"),
-    ("site:gupy.com.br", ""),
-    ("site:vagas.com.br", ""),
-    ("site:trampos.co", ""),
-    ("site:ciadetalentos.com.br", ""),
-    ("site:glassdoor.com.br", "brasil OR brazil"),
-    ("site:br.indeed.com", "brasil OR brazil"),
-    ("site:roberthalf.com.br", ""),
-    ("site:michaelpage.com.br", ""),
-    ("site:talenses.com", "brasil OR brazil"),
-    ("site:hays.com.br", ""),
-    ("site:exec.com.br", ""),
-    ("site:kornferry.com", "brazil OR brasil"),
-    ("site:spencerstuart.com", "brazil OR brasil"),
-    ("site:heidrick.com", "brazil OR brasil"),
-    ("site:russellreynolds.com", "brazil OR brasil"),
-    ("site:pageexecutive.com", "brazil OR brasil"),
-    ("site:foxhumancapital.com", "brasil OR brazil"),
-    ("site:workable.com", "brasil OR brazil"),
-    ("site:novare.com.br", ""),
-    ("site:pulsobrasil.com.br", ""),
-    ("site:recrutabrasil.com.br", ""),
-    ("site:curriculo.99jobs.com", ""),
-    ("site:empregos.com.br", "")
-]
+# Funções de normalização (essenciais para o Lovable)
+def normalize_title(title: str) -> str:
+    title_lower = title.lower()
+    replacements = {
+        "sr.": "sênior", "jr.": "júnior", "supervisor": "coordenador",
+        "tech lead": "líder técnico", "head of": "diretor de"
+    }
+    for old, new in replacements.items():
+        title_lower = title_lower.replace(old, new)
+    return re.sub(r'[0-9\(\)\[\]\{\}\<\>\:\;\,\.\!\?\@\#\$\%\^\&\*\_\+\=\\\/]', '', title_lower).strip()
 
-# 🤖 Dicionários especializados para NLP leve (sem dependências pesadas)
-SENIORITY_RULES = [...]  # (como definido acima)
-SKILLS_DATABASE = [...]  # (como definido acima)
+def detect_seniority(text: str, title: str) -> str:
+    combined = (title + " " + text).lower()
+    if any(kw in combined for kw in ["estágio", "estagiário", "trainee", "aprendiz"]):
+        return "estagio"
+    if any(kw in combined for kw in ["júnior", "jr", "junior", "assistente"]):
+        return "junior"
+    if any(kw in combined for kw in ["pleno", "analista", "consultor", "especialista"]):
+        return "pleno"
+    if any(kw in combined for kw in ["sênior", "sr", "senior", "líder"]):
+        return "senior"
+    if any(kw in combined for kw in ["gerente", "manager", "coordinator", "supervisor", "head"]):
+        return "gerente"
+    if any(kw in combined for kw in ["diretor", "director", "vp", "vice-presidente"]):
+        return "diretor"
+    if any(kw in combined for kw in ["ceo", "cto", "cfo", "chief", "presidente"]):
+        return "c_level"
+    return "pleno"  # Default seguro
+
+def detect_area(text: str, title: str) -> str:
+    combined = (title + " " + text).lower()
+    if any(kw in combined for kw in ["venda", "comercial", "comércio", "representante"]):
+        return "vendas"
+    if any(kw in combined for kw in ["tecnologia", "tech", "software", "desenvolvedor", "dev", "dados"]):
+        return "tecnologia"
+    if any(kw in combined for kw in ["rh", "recursos humanos", "talentos"]):
+        return "recursos_humanos"
+    if any(kw in combined for kw in ["financeiro", "contábil", "controladoria"]):
+        return "financeiro"
+    if any(kw in combined for kw in ["marketing", "comunicação", "mídia"]):
+        return "marketing"
+    if any(kw in combined for kw in ["produto", "product"]):
+        return "produto"
+    if any(kw in combined for kw in ["jurídico", "advogado", "direito"]):
+        return "juridico"
+    return "operacoes"  # Default
+
+def extract_skills(text: str) -> list:
+    text_lower = text.lower()
+    skills = []
+    
+    # Dicionário de skills para matching perfeito
+    tech_skills = ["python", "javascript", "react", "sql", "aws", "docker", "cloud"]
+    management_skills = ["liderança", "gestão", "equipe", "pessoas", "planejamento", "estratégia"]
+    
+    for skill in tech_skills + management_skills:
+        if skill in text_lower:
+            skills.append({
+                "name": skill.title(),
+                "normalized": skill,
+                "category": "hard_skills" if skill in tech_skills else "soft_skills",
+                "proficiency_level": 3,  # Nível médio
+                "is_mandatory": "obrigatório" in text_lower or "requisito" in text_lower,
+                "importance_weight": 80
+            })
+    
+    return skills
 
 def is_vaga_brasil(text: str) -> bool:
-    """Verificação rigorosa de localização brasileira"""
     text_lower = text.lower()
-    
-    # Palavras-chave brasileiras
-    palavras_brasil = [
-        "são paulo", "rio de janeiro", "brasília", "belo horizonte", "porto alegre",
-        "curitiba", "salvador", "recife", "fortaleza", "campinas", "goiânia", "manaus",
-        "brasil", "brazil", "brasileiro", "sudeste", "sul", "nordeste", "centro-oeste"
-    ]
-    
-    # Palavras internacionais a evitar
-    palavras_internacionais = [
-        "united states", "new york", "london", "germany", "france", "canada", "australia",
-        "usa", "uk", "europe", "middle east", "singapore", "dubai", "switzerland"
-    ]
-    
-    # Verificar presença de palavras brasileiras
-    tem_brasil = any(palavra in text_lower for palavra in palavras_brasil)
-    tem_internacional = any(palavra in text_lower for palavra in palavras_internacionais)
-    
-    return tem_brasil and not tem_internacional
+    palavras_brasil = ["são paulo", "rio de janeiro", "brasília", "brasil", "brazil"]
+    palavras_internacionais = ["united states", "london", "germany", "canada"]
+    return any(palavra in text_lower for palavra in palavras_brasil) and not any(palavra in text_lower for palavra in palavras_internacionais)
 
-def generate_uuid(title: str, url: str, posted_at: str) -> str:
-    """Gera um ID único baseado no conteúdo da vaga"""
-    import hashlib
-    hash_input = f"{title.lower().strip()}{url}{posted_at}"
-    return hashlib.md5(hash_input.encode()).hexdigest()
-
-def calculate_quality_score(vaga: Dict) -> float:
-    """Calcula score de qualidade baseado em critérios do Lovable"""
-    score = 0.0
-    
-    # Descrição completa (>200 caracteres)
-    if len(vaga.get("description", "")) > 200:
-        score += 0.2
-    
-    # Skills identificadas
-    if vaga.get("skills_required") and len(vaga["skills_required"]) > 0:
-        score += 0.3
-    
-    # Salário divulgado
-    if vaga.get("salary_disclosed") and vaga["salary_disclosed"]:
-        score += 0.2
-    
-    # Localização clara
-    if vaga.get("city") and vaga.get("state"):
-        score += 0.15
-    
-    # Modelo de trabalho definido
-    if vaga.get("work_model") and vaga["work_model"] in ["remote", "hybrid", "onsite"]:
-        score += 0.15
-    
-    return min(score, 1.0)
-
-def process_job_for_lovable(raw_vaga: Dict) -> Dict:
-    """Processa vaga para o formato exato do Lovable"""
-    processed = {
-        # 1. Identificação e Metadados
-        "id": generate_uuid(raw_vaga["title"], raw_vaga["link"], raw_vaga["data_publicacao"]),
-        "external_id": f"{raw_vaga['fonte']}_{hash(raw_vaga['link'])}",
-        "source": raw_vaga["fonte"],
-        "source_url": raw_vaga["link_candidatura"],
-        "scraped_at": datetime.utcnow().isoformat(),
-        "posted_at": f"{raw_vaga['data_publicacao']}T00:00:00Z",
-        "posted_days_ago": (datetime.now() - datetime.strptime(raw_vaga['data_publicacao'], "%Y-%m-%d")).days,
-        "is_active": True,
-        "is_verified": True,
-        "ghost_job_risk_score": 0.1 if raw_vaga["fonte"] in ["LinkedIn", "Indeed", "Gupy"] else 0.3,
-        
-        # 2. Informações do Cargo
-        "title": raw_vaga["cargo"],
-        "title_normalized": normalize_title(raw_vaga["cargo"]),
-        "title_english": "",  # Deixar vazio para processamento futuro
-        "seniority_level": detect_seniority(raw_vaga["descricao_completa"], raw_vaga["cargo"]),
-        "area": detect_area(raw_vaga["descricao_completa"], raw_vaga["cargo"]),  # Função a ser implementada
-        "sub_area": "",  # Inferir com NLP futuro
-        "sub_area_level_2": "",
-        "sub_area_level_3": "",
-        
-        # 3. Informações da Empresa
-        "company_name": raw_vaga["empresa"] if raw_vaga["empresa"] != "Não informado" else extract_company(raw_vaga["descricao_completa"]),
-        "company_name_normalized": normalize_company_name(raw_vaga["empresa"]) if raw_vaga["empresa"] != "Não informado" else "",
-        "company_size": "",  # Inferir futuramente
-        "industry_sector": "",  # Inferir futuramente
-        "market_type": "",  # Inferir futuramente
-        "company_logo_url": "",
-        "is_headhunter": raw_vaga["fonte"] in ["Korn Ferry", "Spencer Stuart", "Egon Zehnder", "Heidrick & Struggles"],
-        "is_tech_specialized": raw_vaga["fonte"] in ["LinkedIn", "Gupy", "Trampos.co", "Glassdoor"],
-        
-        # 4. Localização e Modelo de Trabalho
-        "city": extract_city(raw_vaga["descricao_completa"], raw_vaga["localizacao"]),
-        "state": extract_state(raw_vaga["descricao_completa"], raw_vaga["localizacao"]),
-        "country": "Brasil",
-        "region": extract_region(raw_vaga["localizacao"]),
-        "work_model": detect_work_model(raw_vaga["descricao_completa"], raw_vaga["modalidade"]),
-        "is_remote_eligible": "remoto" in raw_vaga["modalidade"].lower() or "remoto" in raw_vaga["descricao_completa"].lower(),
-        "remote_countries": ["Brasil"],
-        
-        # 5. Remuneração e Benefícios
-        "salary_min": raw_vaga["salario_min"] if "salario_min" in raw_vaga else None,
-        "salary_max": raw_vaga["salario_max"] if "salario_max" in raw_vaga else None,
-        "salary_median": raw_vaga["salario_median"] if "salario_median" in raw_vaga else None,
-        "salary_disclosed": bool(raw_vaga.get("salario_min")),
-        "salary_type": "CLT",
-        "currency": "BRL",
-        "benefits": extract_benefits(raw_vaga["descricao_completa"], raw_vaga.get("beneficios", [])),
-        
-        # 6. Skills e Requisitos
-        "skills_required": extract_skills(raw_vaga["descricao_completa"]),
-        "experience_years_min": extract_experience_years(raw_vaga["descricao_completa"]),
-        "experience_years_max": None,
-        
-        # 7. Qualificações
-        "education_required": extract_education(raw_vaga["descricao_completa"]),
-        "certifications_required": [],
-        "languages_required": extract_languages(raw_vaga["descricao_completa"]),
-        
-        # 8. Conteúdo e Descrição
-        "description": raw_vaga["descricao_completa"],
-        "description_summary": generate_summary(raw_vaga["descricao_completa"]),  # Função a ser implementada
-        "responsibilities": extract_responsibilities(raw_vaga["descricao_completa"]),
-        "requirements_raw": "",  # Pode ser extraído da descrição
-        "benefits_description": "",
-        "culture_keywords": extract_culture_keywords(raw_vaga["descricao_completa"]),
-        
-        # 9. Embeddings e AI (serão preenchidos em lote futuramente)
-        "embedding": [],
-        "skills_embedding": [],
-        "culture_embedding": [],
-        
-        # 10. Métricas e Analytics
-        "view_count": 0,
-        "application_count": 0,
-        "competition_level": "alta" if raw_vaga["fonte"] == "LinkedIn" else ("média" if raw_vaga["fonte"] == "Indeed" else "baixa"),
-        "market_demand_score": 0,
-        "avg_match_score_platform": 0.0,
-        
-        # Campos de timestamp
-        "updated_at": datetime.utcnow().isoformat()
-    }
-    
-    # Calcular qualidade
-    processed["quality_score"] = calculate_quality_score(processed)
-    
-    return processed
-
-def scrape_with_serpapi(query: str, location_filter: str = "", after_date: str = "") -> List[Dict]:
-    """Coleta inteligente usando SerpAPI com proxy rotativo"""
-    session = get_proxy_session()
-    all_jobs = []
-    
-    url = f"https://serpapi.com/search.json?q={urllib.parse.quote(query)}&location={urllib.parse.quote(location_filter)}&hl=pt-BR&gl=br&num=20&api_key={SERPAPI_KEY}"
-    
+def scrape_job_details(url: str) -> dict:
     try:
-        logger.info(f"🔍 Buscando no Google (via SerpAPI): {query} {location_filter}")
-        res = session.get(url, timeout=20)
-        data = res.json()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7"
+        }
+        time.sleep(DELAY_ENTRE_REQUISICOES)
+        res = requests.get(url, headers=headers, timeout=15)
         
-        if "organic_results" not in 
-            logger.warning(f"⚠️ Nenhum resultado para query: {query}")
-            return []
+        if res.status_code != 200:
+            return {"descricao": "Erro ao coletar detalhes", "salario": None, "modalidade": "Não informado"}
         
-        for result in data["organic_results"]:
-            link = result.get("link", "")
-            title = result.get("title", "").strip()
-            snippet = result.get("snippet", "")
-            
-            # Filtro de qualidade imediato
-            if not link or len(link) < 10 or "google.com" in link or "url?" in link:
-                continue
-            
-            # Filtro geográfico rigoroso
-            if not is_vaga_brasil(title + " " + snippet):
-                logger.info(f"🌍 Ignorando vaga internacional: {title[:50]}...")
-                continue
-            
-            # Filtro de relevância executiva
-            if not is_vaga_executiva(title):
-                logger.info(f"🏢 Ignorando vaga não executiva: {title[:50]}...")
-                continue
-            
-            # Extrair detalhes da vaga
-            details = scrape_job_details(link, session)
-            
-            # Montar registro
-            job_record = {
-                "cargo": title,
-                "empresa": extract_company_from_result(result),
-                "link_candidatura": link,
-                "data_publicacao": after_date,
-                "localizacao": extract_location_from_result(result),
-                "descricao_completa": details["descricao_completa"],
-                "fonte": detect_source(link),
-                "salario": details["salario"],
-                "modalidade": details["modalidade"],
-                "requisitos": details["requisitos"]
-            }
-            
-            all_jobs.append(job_record)
-            
-            if len(all_jobs) >= MAX_VAGAS_POR_FONTE:
-                break
-    
+        soup = BeautifulSoup(res.text, "html.parser")
+        descricao = ""
+        
+        # Buscar descrição completa
+        candidates = ["div.description", "div.job-description", "div.content", "article"]
+        for selector in candidates:
+            elements = soup.select(selector)
+            if elements:
+                descricao = "\n".join([elem.get_text(strip=True) for elem in elements])
+                if len(descricao) > 100:
+                    break
+        
+        if not descricao:
+            main = soup.select_one("main, #main, .main")
+            descricao = main.get_text(strip=True) if main else "Descrição não disponível"
+        
+        # Detectar modalidade
+        modalidade = "Não informado"
+        if "remoto" in descricao.lower():
+            modalidade = "remote"
+        elif "hibrido" in descricao.lower() or "híbrido" in descricao.lower():
+            modalidade = "hybrid"
+        elif "presencial" in descricao.lower():
+            modalidade = "onsite"
+        
+        # Detectar salário
+        salario = None
+        if "r$" in descricao.lower() or "salário" in descricao.lower():
+            salario = True
+        
+        return {
+            "descricao": descricao[:1500] + "..." if len(descricao) > 1500 else descricao,
+            "salario": salario,
+            "modalidade": modalidade
+        }
     except Exception as e:
-        logger.error(f"❌ Erro na busca SerpAPI: {e}")
+        logging.error(f"Erro ao coletar detalhes de {url}: {e}")
+        return {"descricao": f"Erro: {str(e)}", "salario": None, "modalidade": "Não informado"}
+
+def scrape_google_jobs() -> list:
+    all_jobs = []
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    # Fontes estratégicas (foco Brasil)
+    sources = [
+        "site:vagas.com.br",
+        "site:linkedin.com/jobs brasil OR brazil",
+        "site:gupy.com.br",
+        "site:trampos.co",
+        "site:talenses.com/pt/vagas brasil OR brazil"
+    ]
+    
+    for source in sources:
+        if len(all_jobs) >= MAX_VAGAS_TOTAIS:
+            break
+        
+        search_query = f'diretor OR gerente OR head OR líder OR executivo OR supervisor OR coordenador {source} after:{yesterday}'
+        logging.info(f"🔍 Buscando: {search_query}")
+        
+        try:
+            url = f"https://serpapi.com/search.json?q={urllib.parse.quote(search_query)}&hl=pt-BR&num=20&api_key={SERPAPI_KEY}"
+            res = requests.get(url, timeout=15)
+            data = res.json()
+            
+            if "organic_results" not in 
+                continue
+            
+            for result in data["organic_results"][:10]:
+                if len(all_jobs) >= MAX_VAGAS_TOTAIS:
+                    break
+                
+                link = result.get("link", "")
+                title = result.get("title", "Vaga sem título")
+                snippet = result.get("snippet", "")
+                
+                if not link or "google.com" in link or len(link) < 10:
+                    continue
+                
+                # Filtro geográfico rigoroso
+                if not is_vaga_brasil(title + " " + snippet):
+                    continue
+                
+                # Coletar detalhes
+                details = scrape_job_details(link)
+                
+                # Processar para formato Lovable
+                job_record = {
+                    "external_id": f"{hash(link)}",
+                    "source": source.split("site:")[1].split(" ")[0],
+                    "source_url": link,
+                    "posted_at": f"{yesterday}T00:00:00Z",
+                    "posted_days_ago": 1,
+                    "title": title[:100],
+                    "title_normalized": normalize_title(title),
+                    "seniority_level": detect_seniority(details["descricao"], title),
+                    "area": detect_area(details["descricao"], title),
+                    "company_name": "Empresa não informada",
+                    "company_name_normalized": "empresa_nao_informada",
+                    "is_headhunter": "talenses" in source or "linkedin" in source,
+                    "city": "São Paulo",  # Ajustar depois
+                    "state": "SP",       # Ajustar depois
+                    "work_model": details["modalidade"],
+                    "is_remote_eligible": "remoto" in details["modalidade"].lower(),
+                    "salary_min": None,
+                    "salary_max": None,
+                    "salary_disclosed": details["salario"],
+                    "benefits": {},
+                    "skills_required": extract_skills(details["descricao"]),
+                    "experience_years_min": 3 if "3+ anos" in details["descricao"].lower() else 5 if "5+ anos" in details["descricao"].lower() else 2,
+                    "education_required": [],
+                    "languages_required": [],
+                    "description": details["descricao"],
+                    "culture_keywords": ["resultados", "colaboração", "inovação"],
+                    "quality_score": 0.8
+                }
+                
+                all_jobs.append(job_record)
+                logging.info(f"✅ Coletada: {title[:50]}... ({job_record['seniority_level']})")
+                time.sleep(2)
+        
+        except Exception as e:
+            logging.error(f"Erro na busca: {e}")
+            time.sleep(5)
     
     return all_jobs
 
-def run_scrapper():
-    """Função mestre de coleta inteligente"""
-    logger.info("🚀 INICIANDO COLETA INTELIGENTE PARA MATCHING PERFEITO")
-    logger.info("🎯 Foco: Vagas executivas no Brasil com dados completos para Lovable")
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-    all_vagas_processed = []
-    
-    # 1. Coletar de fontes estratégicas
-    for source, location_filter in SOURCES_BRASIL:
-        if len(all_vagas_processed) >= MAX_VAGAS_TOTAIS:
-            break
-        
-        # Construir query com palavras-chave executivas
-        query = f"diretor OR gerente OR head OR líder OR executivo OR supervisor OR coordenador OR senior OR sênior OR c-level OR chief {source}"
-        
-        # Coletar vagas
-        raw_vagas = scrape_with_serpapi(query, location_filter, yesterday)
-        logger.info(f"✅ Coletadas {len(raw_vagas)} vagas brutas de {source}")
-        
-        # 2. Processar cada vaga para formato Lovable
-        for raw_vaga in raw_vagas:
-            try:
-                processed_vaga = process_job_for_lovable(raw_vaga)
-                
-                # Filtro de qualidade final
-                if processed_vaga["quality_score"] >= MIN_QUALIDADE_SCORE:
-                    all_vagas_processed.append(processed_vaga)
-                    logger.info(f"⭐ Vaga processada: {processed_vaga['title'][:50]}... (Qualidade: {processed_vaga['quality_score']:.1f})")
-                else:
-                    logger.info(f"🗑️ Descartada vaga de baixa qualidade: {raw_vaga['cargo'][:50]}")
-            except Exception as e:
-                logger.error(f"❌ Erro ao processar vaga '{raw_vaga.get('cargo', 'Sem título')}': {e}")
-        
-        time.sleep(5)  # Respeitar SerpAPI
-    
-    logger.info(f"📊 TOTAL DE VAGAS PROCESSADAS: {len(all_vagas_processed)}")
-    
-    # 3. Salvar no Supabase (com batch processing)
-    if all_vagas_processed:
+def save_to_supabase(jobs: list):
+    logging.info(f"💾 Salvando {len(jobs)} vagas no Supabase...")
+    for job in jobs:
         try:
-            # Batch insert para performance
-            result = supabase_write.table("vagas_lovable").upsert(all_vagas_processed).execute()
-            logger.info(f"✅ Salvadas {len(result.data)} vagas no Supabase")
-            
-            # 4. Gerar relatório de qualidade
-            quality_metrics = {
-                "total_vagas": len(all_vagas_processed),
-                "media_qualidade": sum(v["quality_score"] for v in all_vagas_processed) / len(all_vagas_processed),
-                "fontes": list(set(v["source"] for v in all_vagas_processed)),
-                "seniority_distribution": {},
-                "area_distribution": {}
-            }
-            
-            for vaga in all_vagas_processed:
-                # Seniority distribution
-                level = vaga["seniority_level"]
-                quality_metrics["seniority_distribution"][level] = quality_metrics["seniority_distribution"].get(level, 0) + 1
-                
-                # Area distribution
-                area = vaga["area"]
-                quality_metrics["area_distribution"][area] = quality_metrics["area_distribution"].get(area, 0) + 1
-            
-            logger.info("📈 MÉTRICAS DE QUALIDADE:")
-            logger.info(f"   • Total de vagas: {quality_metrics['total_vagas']}")
-            logger.info(f"   • Qualidade média: {quality_metrics['media_qualidade']:.2f}/1.0")
-            logger.info(f"   • Fontes: {', '.join(quality_metrics['fontes'])}")
-            logger.info(f"   • Distribuição por senioridade: {quality_metrics['seniority_distribution']}")
-            logger.info(f"   • Distribuição por área: {quality_metrics['area_distribution']}")
-        
+            supabase.table("vagas_lovable").insert(job).execute()
         except Exception as e:
-            logger.error(f"❌ Erro ao salvar no Supabase: {e}")
-    
-    return len(all_vagas_processed)
+            logging.error(f"Erro ao salvar vaga: {e}")
 
-# Flask API (simplificada para este exemplo)
-app = Flask(__name__)
-
-@app.route("/health", methods=["GET"])
-def health_check():
-    return {
-        "status": "online",
-        "time": datetime.utcnow().isoformat(),
-        "message": "✅ Coletor Inteligente de Vagas para Lovable está online!",
-        "config": {
-            "max_vagas_por_fonte": MAX_VAGAS_POR_FONTE,
-            "max_vagas_totais": MAX_VAGAS_TOTAIS,
-            "min_qualidade_score": MIN_QUALIDADE_SCORE,
-            "fontes_configuradas": len(SOURCES_BRASIL)
-        }
-    }
+def run_scrapper():
+    logging.info("🚀 INICIANDO COLETA PARA LOVABLE")
+    jobs = scrape_google_jobs()
+    if jobs:
+        save_to_supabase(jobs)
+    logging.info(f"✅ COLETA FINALIZADA: {len(jobs)} vagas salvas para o Lovable")
 
 if __name__ == "__main__":
-    logger.info("🔥 INICIANDO SERVIDOR - AGUARDANDO REQUISIÇÕES")
     run_scrapper()
-    app.run(host="0.0.0.0", port=8000)
