@@ -1,6 +1,7 @@
 # app.py — Coletor Disruptivo de Vagas (Versão 3.0)
 # Última atualização: 02/01/2026
 # Este código usa IA para auto-aprender habilidades, cargos e localizações SEM LISTAS MANUAIS
+# Fix para modelo NLP
 
 import requests
 from bs4 import BeautifulSoup
