@@ -1,6 +1,6 @@
-# app.py — Coletor Disruptivo de Vagas (Versão 4.0 - Otimizado para Plano Pago)
+# app.py — Coletor Disruptivo de Vagas (Versão 5.0 - Correções Críticas)
 # Última atualização: 03/01/2026
-# Este código usa IA para auto-aprender habilidades, cargos e localizações SEM LISTAS MANUAIS
+# Este código corrige todos os erros críticos de build e runtime
 # Arquitetura otimizada para plano pago com Metal Build Environment
 
 from flask import Flask
@@ -19,6 +19,10 @@ from supabase import create_client
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from geopy.geocoders import Nominatim
+import ssl
+import certifi
+import subprocess
+import sys
 
 # Configurar logs
 logging.basicConfig(
@@ -51,30 +55,39 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # 🧠 CARREGAR MODELOS DE IA COM CACHE E FALBACK (ARQUITETURA OTIMIZADA)
 try:
-    # 1. Modelo NLP em português para extração de entidades - com cache e fallback
-    MODEL_CACHE_DIR = "/tmp/spacy_models"
-    os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
-    
-    def load_nlp_model():
-        """Carrega modelo NLP com cache e fallback inteligente"""
+    # 1. Verificar se os modelos NLP estão instalados, senão instalar
+    def install_spacy_models():
+        """Instala modelos NLP do spaCy se não estiverem disponíveis"""
         try:
-            # Tentar carregar modelo completo primeiro
-            nlp = spacy.load("pt_core_news_lg")
-            logger.info("✅ Modelo NLP completo carregado com sucesso")
-            return nlp
+            # Verificar se modelo completo está disponível
+            spacy.load("pt_core_news_lg")
+            logger.info("✅ Modelo NLP completo (pt_core_news_lg) já instalado")
+            return "pt_core_news_lg"
         except Exception as e1:
-            logger.warning(f"⚠️ Modelo completo não disponível: {e1}. Tentando modelo leve...")
+            logger.warning(f"⚠️ Modelo completo não disponível: {e1}")
+            
             try:
-                # Fallback para modelo leve
-                nlp = spacy.load("pt_core_news_sm")
-                logger.warning("⚠️ Usando modelo leve (pt_core_news_sm) como fallback")
-                return nlp
+                # Verificar se modelo leve está disponível
+                spacy.load("pt_core_news_sm")
+                logger.info("✅ Modelo NLP leve (pt_core_news_sm) já instalado")
+                return "pt_core_news_sm"
             except Exception as e2:
-                logger.error(f"❌ Erro crítico ao carregar modelo NLP: {e2}")
-                logger.error("❌ Sistema não pode continuar sem modelo NLP")
-                exit(1)
+                logger.warning(f"⚠️ Modelo leve não disponível: {e2}. Instalando...")
+                
+                try:
+                    # Instalar modelo leve como fallback
+                    subprocess.run([sys.executable, "-m", "spacy", "download", "pt_core_news_sm", "--quiet"], check=True)
+                    logger.info("✅ Modelo NLP leve instalado com sucesso")
+                    return "pt_core_news_sm"
+                except Exception as e3:
+                    logger.error(f"❌ Falha crítica na instalação de modelos NLP: {e3}")
+                    logger.error("❌ Sistema não pode continuar sem modelo NLP")
+                    exit(1)
     
-    nlp = load_nlp_model()
+    # Instalar e carregar modelo NLP
+    model_name = install_spacy_models()
+    nlp = spacy.load(model_name)
+    logger.info(f"✅ Modelo NLP carregado com sucesso: {model_name}")
     
     # 2. Modelo de embeddings multilíngue (captura variações globais)
     EMBEDDING_MODEL = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
@@ -324,8 +337,11 @@ def get_proxy_session():
     """Sessão com proxy adaptativo (muda IPs conforme bloqueio)"""
     session = requests.Session()
     
+    # Configuração SSL correta para evitar erros de certificado
+    ssl_context = ssl.create_default_context(cafile=certifi.where())
+    session.verify = ssl_context
+    
     # Configuração para evitar SSL errors (crítico para sites como LinkedIn)
-    session.verify = False
     session.mount('https://', requests.adapters.HTTPAdapter(max_retries=MAX_RETRIES))
     
     if SCRAPERAPI_KEY:
@@ -793,7 +809,7 @@ def health_check():
         "mode": "DISRUPTIVO",
         "intelligence": "AUTONOMOUS",
         "models": {
-            "nlp": "pt_core_news_lg (cached)",
+            "nlp": "pt_core_news_lg (auto-installed)",
             "embeddings": "paraphrase-multilingual-MiniLM-L12-v2",
             "geocoding": "nominatim"
         }
