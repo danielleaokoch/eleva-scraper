@@ -4,3 +4,8 @@ beautifulsoup4
 lxml
 supabase
 python-dotenv
+sentence-transformers
+torch
+transformers
+numpy
+psycopg2-binary
