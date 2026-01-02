@@ -1,24 +1,21 @@
 # app.py — Coletor Disruptivo de Vagas (Versão 3.0)
 # Última atualização: 02/01/2026
 # Este código usa IA para auto-aprender habilidades, cargos e localizações SEM LISTAS MANUAIS
-# Fix para modelo NLP
 
+from flask import Flask
+import logging
+import os
 import requests
 from bs4 import BeautifulSoup
 import time
 import json
-import logging
-import os
-import re
-import random
-import spacy
 from datetime import datetime, timedelta
 import urllib.parse
 from supabase import create_client
 import numpy as np
-from sklearn.cluster import DBSCAN
 from sentence_transformers import SentenceTransformer
 from geopy.geocoders import Nominatim
+import spacy  # <--- IMPORT ESSENCIAL PARA O NLP
 
 # Configurar logs
 logging.basicConfig(
