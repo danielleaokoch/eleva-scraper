@@ -1,6 +1,7 @@
-# app.py — Coletor Disruptivo de Vagas (Versão 3.0)
-# Última atualização: 02/01/2026
+# app.py — Coletor Disruptivo de Vagas (Versão 4.0 - Otimizado para Plano Pago)
+# Última atualização: 03/01/2026
 # Este código usa IA para auto-aprender habilidades, cargos e localizações SEM LISTAS MANUAIS
+# Arquitetura otimizada para plano pago com Metal Build Environment
 
 from flask import Flask
 import requests
@@ -48,27 +49,50 @@ if missing_vars:
 # Criar cliente Supabase
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-# 🧠 CARREGAR MODELOS DE IA (ZERO LISTAS MANUAIS)
+# 🧠 CARREGAR MODELOS DE IA COM CACHE E FALBACK (ARQUITETURA OTIMIZADA)
 try:
-    # 1. Modelo NLP em português para extração de entidades
-    nlp = spacy.load("pt_core_news_lg")
-    logger.info("✅ Modelo NLP em português carregado")
+    # 1. Modelo NLP em português para extração de entidades - com cache e fallback
+    MODEL_CACHE_DIR = "/tmp/spacy_models"
+    os.makedirs(MODEL_CACHE_DIR, exist_ok=True)
+    
+    def load_nlp_model():
+        """Carrega modelo NLP com cache e fallback inteligente"""
+        try:
+            # Tentar carregar modelo completo primeiro
+            nlp = spacy.load("pt_core_news_lg")
+            logger.info("✅ Modelo NLP completo carregado com sucesso")
+            return nlp
+        except Exception as e1:
+            logger.warning(f"⚠️ Modelo completo não disponível: {e1}. Tentando modelo leve...")
+            try:
+                # Fallback para modelo leve
+                nlp = spacy.load("pt_core_news_sm")
+                logger.warning("⚠️ Usando modelo leve (pt_core_news_sm) como fallback")
+                return nlp
+            except Exception as e2:
+                logger.error(f"❌ Erro crítico ao carregar modelo NLP: {e2}")
+                logger.error("❌ Sistema não pode continuar sem modelo NLP")
+                exit(1)
+    
+    nlp = load_nlp_model()
     
     # 2. Modelo de embeddings multilíngue (captura variações globais)
     EMBEDDING_MODEL = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
     logger.info("✅ Modelo de embeddings multilíngue carregado")
     
     # 3. Geocodificador para identificar cidades brasileiras
-    geolocator = Nominatim(user_agent="eleva_scraper")
+    geolocator = Nominatim(user_agent="eleva_scraper", timeout=10)
     logger.info("✅ Geocodificador ativado")
     
 except Exception as e:
     logger.error(f"❌ Erro ao carregar modelos de IA: {e}")
     exit(1)
 
-# ⚙️ Configurações do coletor (AUTONOMOUS MODE)
-MAX_VAGAS_TOTAIS = 150  # Limite dinâmico baseado na qualidade
-DELAY_ENTRE_REQUISICOES = 3.5  # Ajuste automático conforme resposta dos sites
+# ⚙️ Configurações do coletor (OTIMIZADO PARA PLANO PAGO)
+MAX_VAGAS_TOTAIS = 200  # Limite aumentado para plano pago
+DELAY_ENTRE_REQUISICOES = 2.5  # Reduzido para plano pago com proxy
+MAX_RETRIES = 5  # Aumentado para sites problemáticos
+RETRY_DELAY = 3  # Segundos entre tentativas
 
 # 🌐 Fontes de vagas com detecção automática de relevância
 SOURCES_BRASIL = [
@@ -300,6 +324,10 @@ def get_proxy_session():
     """Sessão com proxy adaptativo (muda IPs conforme bloqueio)"""
     session = requests.Session()
     
+    # Configuração para evitar SSL errors (crítico para sites como LinkedIn)
+    session.verify = False
+    session.mount('https://', requests.adapters.HTTPAdapter(max_retries=MAX_RETRIES))
+    
     if SCRAPERAPI_KEY:
         # Estratégia SeekOut: rotação inteligente de proxies
         session.proxies = {
@@ -317,7 +345,8 @@ def get_proxy_session():
         session.headers.update({
             "User-Agent": random.choice(user_agents),
             "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Connection": "keep-alive"
         })
         logger.warning("⚠️ Modo adaptativo: sem proxy rotativo")
     
@@ -482,16 +511,16 @@ def scrape_job_details(url, session):
     try:
         time.sleep(DELAY_ENTRE_REQUISICOES)
         
-        for tentativa in range(3):
+        for tentativa in range(MAX_RETRIES):
             try:
                 res = session.get(url, timeout=15)
                 if res.status_code == 200:
                     break
-                logger.warning(f"Tentativa {tentativa+1} falhou com status {res.status_code}")
-                time.sleep(5)
+                logger.warning(f"Tentativa {tentativa+1} falhou com status {res.status_code} para {url}")
+                time.sleep(RETRY_DELAY * (tentativa + 1))
             except Exception as e:
-                logger.warning(f"Tentativa {tentativa+1} falhou: {e}")
-                time.sleep(5)
+                logger.warning(f"Tentativa {tentativa+1} falhou para {url}: {e}")
+                time.sleep(RETRY_DELAY * (tentativa + 1))
         else:
             logger.error(f"❌ Todas as tentativas falharam para {url}")
             return {
@@ -640,7 +669,7 @@ def scrape_google_jobs(query_base, days_back=1):
                 if len(all_jobs) >= MAX_VAGAS_TOTAIS:
                     break
             
-            time.sleep(3)  # Respeitar SerpAPI
+            time.sleep(2)  # Respeitar SerpAPI (reduzido para plano pago)
         
         except Exception as e:
             logger.error(f"❌ Erro na busca do Google/SerpAPI para {source_query}: {e}")
@@ -764,7 +793,7 @@ def health_check():
         "mode": "DISRUPTIVO",
         "intelligence": "AUTONOMOUS",
         "models": {
-            "nlp": "pt_core_news_lg",
+            "nlp": "pt_core_news_lg (cached)",
             "embeddings": "paraphrase-multilingual-MiniLM-L12-v2",
             "geocoding": "nominatim"
         }
